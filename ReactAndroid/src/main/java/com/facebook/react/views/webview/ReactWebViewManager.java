@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -21,6 +22,7 @@ import android.graphics.Bitmap;
 import android.graphics.Picture;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Message;
 import android.text.TextUtils;
 import android.view.ViewGroup.LayoutParams;
 import android.webkit.ConsoleMessage;
@@ -372,12 +374,40 @@ public class ReactWebViewManager extends SimpleViewManager<WebView> {
       public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
         callback.invoke(origin, true, false);
       }
+
+      @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, Message resultMsg) {
+        final WebView originalView = view;
+        view.removeAllViews();
+        WebView newWebView = new WebView(view.getContext());
+        view.addView(newWebView);
+
+        newWebView.getSettings().setJavaScriptEnabled(true); // NOTE: This is required for FB login to work!!
+        newWebView.setWebViewClient(new WebViewClient() {
+          @Override
+          public boolean shouldOverrideUrlLoading(WebView view2, String url) {
+            // Only allow whitelisted target="_blank" url to be opened in new window; other urls should be opened in the original web view.
+            if (Pattern.compile("^https://m\\.facebook\\.com/v.*/dialog/oauth.*").matcher(url).matches()) {
+              return false;
+            } else {
+              originalView.loadUrl(url);
+              return true;
+            }
+          }
+        });
+
+        WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+        transport.setWebView(newWebView);
+        resultMsg.sendToTarget();
+
+        return true;
+      }
     });
     reactContext.addLifecycleEventListener(webView);
     mWebViewConfig.configWebView(webView);
     webView.getSettings().setBuiltInZoomControls(true);
     webView.getSettings().setDisplayZoomControls(false);
     webView.getSettings().setDomStorageEnabled(true);
+    webView.getSettings().setSupportMultipleWindows(true);
 
     // Fixes broken full-screen modals/galleries due to body height being 0.
     webView.setLayoutParams(
